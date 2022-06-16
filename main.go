@@ -19,14 +19,20 @@ var password = goDotEnvVariable("DB_PASS")
 var hostname = goDotEnvVariable("DB_URL")
 var dbName = goDotEnvVariable("DB_NAME")
 
-// var dbgorm *gorm.DB
-
 type User struct {
 	ID       int64  `gorm:"primary_key;auto_increment;not_null"`
 	Name     string `json:"username"`
 	Password string `json:"password"`
 }
 
+func checkDBConn() {
+	dbgorm, err1 := gorm.Open("mysql", dsn())
+	_ = dbgorm
+	if err1 != nil {
+		panic("failed to connect database")
+	}
+	fmt.Println("checked")
+}
 func goDotEnvVariable(key string) string {
 
 	err := godotenv.Load(".env")
@@ -47,10 +53,6 @@ func homePage(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Endpoint Hit: /homePage")
 }
 
-func gorms(p User) {
-
-}
-
 func register(w http.ResponseWriter, r *http.Request) {
 	requestBody, _ := ioutil.ReadAll(r.Body)
 	var person User
@@ -59,12 +61,59 @@ func register(w http.ResponseWriter, r *http.Request) {
 	if err1 != nil {
 		panic("failed to connect database")
 	}
-	dbgorm.Save(&person)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(person)
-	fmt.Println("Endpoint Hit: /register")
 
+	var check int = checkUser(person)
+	if check == 1 {
+		dbgorm.Save(&person)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(person)
+		fmt.Println("Endpoint Hit: /register")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+
+		w.WriteHeader(http.StatusOK)
+		wrong := map[string]string{"Message": "User already Exist"}
+
+		json.NewEncoder(w).Encode(wrong)
+	}
+}
+
+func searchUser(w http.ResponseWriter, r *http.Request) {
+	dbgorm, err1 := gorm.Open("mysql", dsn())
+	if err1 != nil {
+		panic("failed to connect database")
+	}
+	vars := mux.Vars(r)
+	key := vars["usname"]
+	var persona User
+	dbgorm.First(&persona, "name = ?", key)
+	// fmt.Print(persona.ID)
+	if persona.ID == 0 {
+		wrong := map[string]string{"Message": "User already Exist"}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(wrong)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(persona)
+	}
+
+}
+
+func checkUser(person User) (check int) {
+	dbgorm, err1 := gorm.Open("mysql", dsn())
+	if err1 != nil {
+		panic("failed to connect database")
+	}
+	dbgorm.Where("name = ?", person.Name).Find(&person)
+	fmt.Print(person.ID)
+	if person.ID == 0 {
+		check = 1
+	} else {
+		check = 0
+	}
+
+	return
 }
 
 func initialMigrate() {
@@ -75,20 +124,20 @@ func initialMigrate() {
 	}
 	dbgorm.AutoMigrate(person)
 	fmt.Println("DB Migrated")
-
 }
 
 func handleRequests() {
 	myRouter := mux.NewRouter().StrictSlash(true)
 	myRouter.HandleFunc("/", homePage)
 	myRouter.HandleFunc("/register", register).Methods("POST")
+	myRouter.HandleFunc("/search-user/{usname}", searchUser).Methods("GET")
 	log.Fatal(http.ListenAndServe(":10000", myRouter))
 }
 
 func main() {
 	// fmt.Print(dsn())
 	initialMigrate()
-	// checkDBConn()
+	checkDBConn()
 	handleRequests()
 
 }
